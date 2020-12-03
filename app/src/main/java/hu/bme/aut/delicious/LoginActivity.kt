@@ -1,17 +1,21 @@
 package hu.bme.aut.delicious
 
 import android.content.Intent
+import android.database.sqlite.SQLiteConstraintException
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.widget.Toast
+import androidx.fragment.app.FragmentTransaction
 import androidx.room.Room
 import com.google.android.material.snackbar.Snackbar
 import hu.bme.aut.delicious.Data.CurrentUserManager
+import hu.bme.aut.delicious.Data.Login.User
 import hu.bme.aut.delicious.Data.Login.UserDatabase
+import hu.bme.aut.delicious.fragments.RegisterDialogFragment
 import kotlinx.android.synthetic.main.activity_login.*
-import java.util.logging.Level
-import java.util.logging.Logger
+import kotlin.concurrent.thread
 
-class LoginActivity : AppCompatActivity() {
+class LoginActivity : AppCompatActivity(), RegisterDialogFragment.UserRegisterDialogListener {
 
     private lateinit var database: UserDatabase
 
@@ -23,7 +27,9 @@ class LoginActivity : AppCompatActivity() {
             applicationContext,
             UserDatabase::class.java,
             "userDb"
-        ).build()
+        )
+        .fallbackToDestructiveMigration()
+        .build()
 
         initCurrentUser()
 
@@ -32,11 +38,13 @@ class LoginActivity : AppCompatActivity() {
                 login_username.text.toString().isEmpty() -> {
                     //TODO make a Snackbar
                     login_username.requestFocus()
-                    login_username.error = "Please enter your username"
+                    //Snackbar.make(login_username, R.string.warn_enter_user, Snackbar.LENGTH_LONG).show()
+                    Toast.makeText(this, R.string.warn_enter_user, Toast.LENGTH_LONG).show()
                 }
                 login_password.text.toString().isEmpty() -> {
                     login_password.requestFocus()
-                    login_password.error = "Please enter your password"
+                    //Snackbar.make(login_username, R.string.warn_enter_password, Snackbar.LENGTH_LONG).show()
+                    Toast.makeText(this, R.string.warn_enter_password, Toast.LENGTH_LONG).show()
                 }
                 else -> {
                     login()
@@ -45,7 +53,7 @@ class LoginActivity : AppCompatActivity() {
         }
 
         btnRegister.setOnClickListener {
-            //TODO register
+            showRegisterDialog()
         }
     }
 
@@ -55,46 +63,82 @@ class LoginActivity : AppCompatActivity() {
         val pw = pref.getInt("password", 0)
 
         if(!username.isNullOrEmpty()){
-            val user = database.userDao().getUser(username)
-            if (user != null && user.password == pw) {
-                CurrentUserManager.CurrentUser = user
-                startActivity(Intent(this, MainActivity::class.java))
+            thread {
+                val user = database.userDao().getUser(username)
+                if (user != null && user.password == pw) {
+                    runOnUiThread {
+                        CurrentUserManager.CurrentUser = user
+                        startActivity(Intent(this, MainActivity::class.java))
+                    }
+                }
             }
         }
 
     }
 
     private fun login() {
-        val user = database.userDao().getUser(login_username.text.toString())
+        thread {
+            val user = database.userDao().getUser(login_username.text.toString())
 
-        if(user == null){
-            login_username.requestFocus()
-            login_username.error = "Invalid user!"
-            return
-        }
-
-        val pwhash = login_password.text.toString().hashCode()
-
-        if(user.password == pwhash){
-            val pref = getSharedPreferences("CurrentUser", MODE_PRIVATE)
-            with (pref.edit()) {
-                putString("username", user.username)
-                putInt("password", user.password)
-                apply()
+            if(user == null){
+                runOnUiThread {
+                    login_username.requestFocus()
+                    Toast.makeText(this, R.string.error_user, Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
             }
-            CurrentUserManager.CurrentUser = user
-            startActivity(Intent(this, MainActivity::class.java))
-        }
-        else {
-            login_password.requestFocus()
-            login_password.error = "wrong password!"
-            CurrentUserManager.CurrentUser = null
 
-            val pref = getSharedPreferences("CurrentUser", MODE_PRIVATE)
-            with (pref.edit()) {
-                putString("username", "")
-                putInt("password", 0)
-                apply()
+            val pwhash = login_password.text.toString().hashCode()
+
+            if(user!!.password == pwhash){
+                val pref = getSharedPreferences("CurrentUser", MODE_PRIVATE)
+                with (pref.edit()) {
+                    putString("username", user.username)
+                    putInt("password", user.password)
+                    apply()
+                }
+
+                runOnUiThread {
+                    CurrentUserManager.CurrentUser = user
+                    startActivity(Intent(this, MainActivity::class.java))
+                }
+            }
+            else {
+                val pref = getSharedPreferences("CurrentUser", MODE_PRIVATE)
+                with (pref.edit()) {
+                    putString("username", "")
+                    putInt("password", 0)
+                    apply()
+                }
+
+                runOnUiThread {
+                    login_password.requestFocus()
+                    Toast.makeText(this, R.string.error_password, Toast.LENGTH_LONG).show()
+                    CurrentUserManager.CurrentUser = null
+                }
+            }
+        }
+    }
+
+    private fun showRegisterDialog() {
+        RegisterDialogFragment().show(
+            supportFragmentManager,
+            RegisterDialogFragment.TAG
+        )
+    }
+
+    override fun onUserRegistered(newUser: User) {
+        thread {
+            try {
+                database.userDao().insert(newUser)
+                runOnUiThread{
+                    Snackbar.make(login_username, "${newUser.username} was created!",Snackbar.LENGTH_LONG).show()
+                    login_username.setText(newUser.username)
+                }
+            } catch (e: SQLiteConstraintException) {
+                runOnUiThread{
+                    Snackbar.make(login_username, R.string.error_user_taken, Snackbar.LENGTH_LONG).show()
+                }
             }
         }
     }

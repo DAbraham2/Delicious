@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">Delicious</string>
+    <string name="warn_enter_user">\"Please enter your username\"</string>
+    <string name="warn_enter_password">Please enter your password</string>
+    <string name="error_user">Invalid username</string>
+    <string name="error_password">Invalid password!</string>
+    <string name="error_user_taken">This username has been taken already!</string>
 </resources>
